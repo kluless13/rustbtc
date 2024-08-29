@@ -1,9 +1,7 @@
-use sha2::{Sha256, Digest};
-use chrono::Utc;
 use serde::{Serialize, Deserialize};
-use bincode;
+use chrono::Utc;
+use crate::merkle_tree::MerkleTree;
 
-// Transaction structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Transaction {
     pub inputs: Vec<TransactionInput>,
@@ -23,7 +21,6 @@ pub struct TransactionOutput {
     pub script_pubkey: Vec<u8>,
 }
 
-// Block structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Block {
     pub header: BlockHeader,
@@ -36,73 +33,55 @@ pub struct BlockHeader {
     pub prev_block_hash: [u8; 32],
     pub merkle_root: [u8; 32],
     pub timestamp: i64,
-    pub bits: u32,
+    pub difficulty: u32,
     pub nonce: u32,
 }
 
 impl Block {
-    pub fn new(prev_block_hash: [u8; 32], transactions: Vec<Transaction>) -> Self {
-        let merkle_root = Self::calculate_merkle_root(&transactions);
-        
+    pub fn new(prev_block_hash: [u8; 32], transactions: Vec<Transaction>, difficulty: u32) -> Self {
+        let transaction_hashes: Vec<String> = transactions
+            .iter()
+            .map(|tx| hex::encode(calculate_hash(tx)))
+            .collect();
+
+        let merkle_tree = MerkleTree::new(&transaction_hashes);
+        let merkle_root = hex::decode(merkle_tree.root).unwrap();
+
         Block {
             header: BlockHeader {
                 version: 1,
                 prev_block_hash,
-                merkle_root,
+                merkle_root: merkle_root.try_into().unwrap(),
                 timestamp: Utc::now().timestamp(),
-                bits: 0, // This should be calculated based on the current difficulty
+                difficulty,
                 nonce: 0,
             },
             transactions,
         }
     }
 
-    fn calculate_merkle_root(transactions: &[Transaction]) -> [u8; 32] {
-        // This is a simplified merkle root calculation
-        // In a real implementation, you'd need to handle the case of an odd number of transactions
-        let mut hasher = Sha256::new();
-        for tx in transactions {
-            let tx_hash = Self::hash_transaction(tx);
-            hasher.update(tx_hash);
-        }
-        hasher.finalize().into()
-    }
-
-    fn hash_transaction(transaction: &Transaction) -> [u8; 32] {
-        // This is a simplified transaction hashing method
-        // In a real implementation, you'd need to properly serialize the transaction
-        let mut hasher = Sha256::new();
-        for input in &transaction.inputs {
-            hasher.update(&input.txid);
-            hasher.update(&input.vout.to_le_bytes());
-            hasher.update(&input.script_sig);
-        }
-        for output in &transaction.outputs {
-            hasher.update(&output.value.to_le_bytes());
-            hasher.update(&output.script_pubkey);
-        }
-        hasher.finalize().into()
-    }
-
-    // New method for serialization
     pub fn serialize(&self) -> Vec<u8> {
         bincode::serialize(self).unwrap()
     }
 
-    // New method for deserialization
     pub fn deserialize(data: &[u8]) -> Result<Self, bincode::Error> {
         bincode::deserialize(data)
     }
 }
 
 impl Transaction {
-    // New method for serialization
     pub fn serialize(&self) -> Vec<u8> {
         bincode::serialize(self).unwrap()
     }
 
-    // New method for deserialization
     pub fn deserialize(data: &[u8]) -> Result<Self, bincode::Error> {
         bincode::deserialize(data)
     }
+}
+
+pub fn calculate_hash<T: Serialize>(item: &T) -> Vec<u8> {
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(bincode::serialize(item).unwrap());
+    hasher.finalize().to_vec()
 }

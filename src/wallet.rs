@@ -1,4 +1,4 @@
-use secp256k1::{Secp256k1, SecretKey, PublicKey};
+use secp256k1::{Secp256k1, SecretKey, PublicKey, Message};
 use rand::Rng;
 use sha2::{Sha256, Digest};
 use bs58;
@@ -41,9 +41,9 @@ impl Wallet {
         bs58::encode(address).into_string()
     }
 
-    pub fn sign_transaction(&self, transaction_hash: &[u8]) -> Vec<u8> {
+    pub fn sign_transaction(&self, transaction_hash: &[u8; 32]) -> Vec<u8> {
         let secp = Secp256k1::new();
-        let message = secp256k1::Message::from_slice(transaction_hash).unwrap();
+        let message = Message::from_slice(transaction_hash).unwrap();
         let signature = secp.sign(&message, &self.private_key);
         signature.serialize_der().to_vec()
     }
