@@ -1,34 +1,36 @@
 use sha2::{Sha256, Digest};
 use chrono::Utc;
+use serde::{Serialize, Deserialize};
+use bincode;
 
 // Transaction structure
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Transaction {
     pub inputs: Vec<TransactionInput>,
     pub outputs: Vec<TransactionOutput>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionInput {
     pub txid: [u8; 32],
     pub vout: u32,
     pub script_sig: Vec<u8>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionOutput {
     pub value: u64,
     pub script_pubkey: Vec<u8>,
 }
 
 // Block structure
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Block {
     pub header: BlockHeader,
     pub transactions: Vec<Transaction>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockHeader {
     pub version: i32,
     pub prev_block_hash: [u8; 32],
@@ -80,5 +82,27 @@ impl Block {
             hasher.update(&output.script_pubkey);
         }
         hasher.finalize().into()
+    }
+
+    // New method for serialization
+    pub fn serialize(&self) -> Vec<u8> {
+        bincode::serialize(self).unwrap()
+    }
+
+    // New method for deserialization
+    pub fn deserialize(data: &[u8]) -> Result<Self, bincode::Error> {
+        bincode::deserialize(data)
+    }
+}
+
+impl Transaction {
+    // New method for serialization
+    pub fn serialize(&self) -> Vec<u8> {
+        bincode::serialize(self).unwrap()
+    }
+
+    // New method for deserialization
+    pub fn deserialize(data: &[u8]) -> Result<Self, bincode::Error> {
+        bincode::deserialize(data)
     }
 }
