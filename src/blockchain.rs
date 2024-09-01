@@ -1,12 +1,13 @@
-use crate::structures::{Block, Transaction, TransactionOutput};
+use crate::structures::{Block, Transaction, TransactionInput, TransactionOutput};
 use crate::utxo::{UTXO, UTXOSet};
+use crate::mempool::Mempool;
 use sha2::{Sha256, Digest};
 use std::time::Instant;
 
 pub struct Blockchain {
     pub chain: Vec<Block>,
     pub utxo_set: UTXOSet,
-    pub current_transactions: Vec<Transaction>,
+    pub mempool: Mempool,
 }
 
 impl Blockchain {
@@ -14,7 +15,7 @@ impl Blockchain {
         let mut blockchain = Blockchain {
             chain: vec![],
             utxo_set: UTXOSet::new(),
-            current_transactions: vec![],
+            mempool: Mempool::new(),
         };
         blockchain.create_genesis_block();
         blockchain
@@ -28,7 +29,7 @@ impl Blockchain {
                 script_pubkey: b"Genesis Address".to_vec(),
             }],
         };
-        let genesis_block = Block::new([0; 32], vec![genesis_transaction.clone()], 0); // Initial difficulty of 0
+        let genesis_block = Block::new([0; 32], vec![genesis_transaction.clone()], 0);
         self.chain.push(genesis_block);
 
         let genesis_utxo = UTXO {
@@ -53,14 +54,13 @@ impl Blockchain {
 
     pub fn add_transaction(&mut self, transaction: &Transaction) -> Result<(), &'static str> {
         if self.is_valid_transaction(transaction) {
-            self.current_transactions.push(transaction.clone());
-            Ok(())
+            self.mempool.add_transaction(transaction.clone())
         } else {
             Err("Invalid transaction")
         }
     }
 
-    fn is_valid_transaction(&self, transaction: &Transaction) -> bool {
+    pub fn is_valid_transaction(&self, transaction: &Transaction) -> bool {
         let mut input_sum = 0;
         let output_sum: u64 = transaction.outputs.iter().map(|output| output.value).sum();
 
@@ -100,45 +100,17 @@ impl Blockchain {
 
     fn is_valid_new_block(&self, block: &Block) -> bool {
         let previous_block = self.chain.last().unwrap();
-
+        
         if block.header.prev_block_hash != self.calculate_block_hash(previous_block) {
             return false;
         }
 
-        // Additional checks can be added here
-
+        // Here you would typically also check:
+        // 1. Block's hash meets the difficulty requirement
+        // 2. Block's timestamp is valid
+        // 3. All transactions in the block are valid
+        
         true
-    }
-
-    pub fn adjust_difficulty(&self) -> u32 {
-        const BLOCK_GENERATION_INTERVAL: i64 = 5; // 5 seconds
-        const DIFFICULTY_ADJUSTMENT_INTERVAL: usize = 10; // Adjust every 10 blocks
-
-        if self.chain.len() <= DIFFICULTY_ADJUSTMENT_INTERVAL {
-            return 1; // Initial difficulty
-        }
-
-        let current_block = self.chain.last().unwrap();
-        let adjustment_block = &self.chain[self.chain.len() - DIFFICULTY_ADJUSTMENT_INTERVAL];
-
-        let time_expected = BLOCK_GENERATION_INTERVAL * DIFFICULTY_ADJUSTMENT_INTERVAL as i64;
-        let time_taken = current_block.header.timestamp - adjustment_block.header.timestamp;
-
-        let mut new_difficulty = current_block.header.difficulty;
-
-        if time_taken < time_expected / 2 {
-            new_difficulty += 1;
-        } else if time_taken > time_expected * 2 {
-            new_difficulty = new_difficulty.saturating_sub(1);
-        }
-
-        new_difficulty.max(1) // Ensure difficulty is always at least 1
-    }
-
-    pub fn calculate_hash_meets_difficulty(&self, hash: &[u8; 32], difficulty: u32) -> bool {
-        let target = u32::MAX >> difficulty;
-        let value = u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]]);
-        value < target
     }
 
     pub fn calculate_block_hash(&self, block: &Block) -> [u8; 32] {
@@ -157,8 +129,9 @@ impl Blockchain {
         println!("Mining new block");
         let start_time = Instant::now();
         let prev_hash = self.calculate_block_hash(self.chain.last().unwrap());
+        let transactions = self.mempool.get_transactions(10); // Get up to 10 transactions
         let difficulty = self.adjust_difficulty();
-        let mut new_block = Block::new(prev_hash, self.current_transactions.clone(), difficulty);
+        let mut new_block = Block::new(prev_hash, transactions.clone(), difficulty);
         
         let mut attempts = 0;
         loop {
@@ -175,8 +148,25 @@ impl Blockchain {
         println!("Mining took {:?} and {} attempts", mining_time, attempts);
         println!("Mining speed: {:.2} hashes per second", attempts as f64 / mining_time.as_secs_f64());
         
-        self.current_transactions.clear();
+        // Remove mined transactions from mempool
+        for tx in &transactions {
+            let tx_hash = self.calculate_transaction_hash(tx);
+            self.mempool.remove_transaction(&tx_hash);
+        }
+
         new_block
+    }
+
+    pub fn adjust_difficulty(&self) -> u32 {
+        // For simplicity, we're using a fixed difficulty
+        // In a real implementation, this would adjust based on mining times
+        1
+    }
+
+    pub fn calculate_hash_meets_difficulty(&self, hash: &[u8; 32], difficulty: u32) -> bool {
+        let target = u32::MAX >> difficulty;
+        let value = u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]]);
+        value < target
     }
 
     pub fn get_balance(&self, address: &str) -> u64 {
